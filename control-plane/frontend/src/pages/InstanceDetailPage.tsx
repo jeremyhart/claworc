@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, createElement } from "react";
 import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
-import { AlertTriangle, X, Maximize, ExternalLink, Plus } from "lucide-react";
+import { AlertTriangle, Eye, X, Maximize, ExternalLink, Plus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTeam } from "@/contexts/TeamContext";
 import StatusBadge from "@/components/StatusBadge";
@@ -402,6 +402,7 @@ export default function InstanceDetailPage() {
     const displayModels: string[] = (instance.models.extra ?? [])
       .filter((m) => m.startsWith(`${p.key}/`))
       .map((m) => m.slice(`${p.key}/`.length));
+    const visionModels = new Set((p.models ?? []).filter((m) => m.input?.includes("image")).map((m) => m.id));
     return (
       <div key={`${isInstanceProvider ? "inst" : "global"}-${p.id}`} className="bg-white rounded-lg border border-gray-200 px-4 py-3">
         <div className="flex items-center gap-3">
@@ -436,9 +437,10 @@ export default function InstanceDetailPage() {
               return (
                 <span
                   key={m}
-                  className={`px-2 py-0.5 text-xs rounded font-mono ${isPrimary ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300" : "bg-gray-100 text-gray-600"}`}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded font-mono ${isPrimary ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300" : "bg-gray-100 text-gray-600"}`}
                 >
                   {m}{isPrimary && <span className="ml-1 font-sans not-italic">★</span>}
+                  {visionModels.has(m) && <Eye size={10} />}
                 </span>
               );
             })}
