@@ -573,3 +573,41 @@ func ListIdleBrowserSessions(cutoff time.Time) ([]BrowserSession, error) {
 func DeleteBrowserSession(instanceID uint) error {
 	return DB.Where("instance_id = ?", instanceID).Delete(&BrowserSession{}).Error
 }
+
+// APIToken helpers
+
+// CreateAPIToken persists a new APIToken row. The caller must populate all
+// fields (UserID, Name, TokenHash, Prefix) before calling this function.
+func CreateAPIToken(t *APIToken) error {
+	return DB.Create(t).Error
+}
+
+// ListAPITokensByUser returns all tokens for the given user, ordered by id.
+func ListAPITokensByUser(userID uint) ([]APIToken, error) {
+	var tokens []APIToken
+	if err := DB.Where("user_id = ?", userID).Order("id").Find(&tokens).Error; err != nil {
+		return nil, err
+	}
+	return tokens, nil
+}
+
+// GetAPITokenByHash looks up a token by the SHA-256 hex hash of its plaintext.
+func GetAPITokenByHash(hash string) (*APIToken, error) {
+	var t APIToken
+	if err := DB.Where("token_hash = ?", hash).First(&t).Error; err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// DeleteAPIToken removes the token identified by id, scoped to userID so a
+// user cannot delete another user's token.
+func DeleteAPIToken(id, userID uint) error {
+	return DB.Where("id = ? AND user_id = ?", id, userID).Delete(&APIToken{}).Error
+}
+
+// TouchAPITokenLastUsed sets last_used_at to now for the given token.
+func TouchAPITokenLastUsed(id uint) error {
+	now := time.Now()
+	return DB.Model(&APIToken{}).Where("id = ?", id).Update("last_used_at", &now).Error
+}

@@ -22,7 +22,7 @@ func setupTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open in-memory db: %v", err)
 	}
-	if err := db.AutoMigrate(&database.User{}, &database.UserInstance{}); err != nil {
+	if err := db.AutoMigrate(&database.User{}, &database.UserInstance{}, &database.APIToken{}); err != nil {
 		t.Fatalf("auto-migrate: %v", err)
 	}
 	database.DB = db
@@ -246,5 +246,146 @@ func TestGetUser_FromContext(t *testing.T) {
 	got := GetUser(req)
 	if got == nil || got.Username != "test" {
 		t.Error("GetUser should return the user set in context")
+	}
+}
+
+// --- Bearer API token path ---
+
+// createAPITokenForUser mints a token directly in the DB and returns the
+// plaintext so tests can set the Authorization header.
+func createAPITokenForUser(t *testing.T, user *database.User) string {
+	t.Helper()
+	plain, hash, prefix, err := auth.GenerateAPIToken()
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	tok := &database.APIToken{
+		UserID:    user.ID,
+		Name:      "test-token",
+		TokenHash: hash,
+		Prefix:    prefix,
+	}
+	if err := database.CreateAPIToken(tok); err != nil {
+		t.Fatalf("create api token: %v", err)
+	}
+	return plain
+}
+
+func TestRequireAuth_BearerValidToken(t *testing.T) {
+	setupTestDB(t)
+	store := auth.NewSessionStore()
+	database.CreateUser(&database.User{Username: "alice", PasswordHash: "h", Role: "admin"})
+	user, _ := database.GetUserByUsername("alice")
+	plain := createAPITokenForUser(t, user)
+
+	handler := RequireAuth(store)(okHandler())
+	req := httptest.NewRequest("GET", "/api/v1/test", nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var body map[string]string
+	json.Unmarshal(w.Body.Bytes(), &body)
+	if body["username"] != "alice" {
+		t.Errorf("username = %q, want alice", body["username"])
+	}
+}
+
+func TestRequireAuth_BearerExpiredToken(t *testing.T) {
+	setupTestDB(t)
+	store := auth.NewSessionStore()
+	database.CreateUser(&database.User{Username: "alice", PasswordHash: "h", Role: "admin"})
+	user, _ := database.GetUserByUsername("alice")
+	plain, hash, prefix, _ := auth.GenerateAPIToken()
+	past := database.APIToken{
+		UserID:    user.ID,
+		Name:      "expired",
+		TokenHash: hash,
+		Prefix:    prefix,
+	}
+	database.DB.Create(&past)
+	// Manually set ExpiresAt to a past time
+	database.DB.Model(&past).Update("expires_at", "2000-01-01 00:00:00")
+
+	handler := RequireAuth(store)(okHandler())
+	req := httptest.NewRequest("GET", "/api/v1/test", nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestRequireAuth_BearerUnknownToken(t *testing.T) {
+	setupTestDB(t)
+	store := auth.NewSessionStore()
+
+	handler := RequireAuth(store)(okHandler())
+	req := httptest.NewRequest("GET", "/api/v1/test", nil)
+	req.Header.Set("Authorization", "Bearer claworc_pat_0000000000000000000000000000000000000000000000000000000000000000")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestRequireAuth_BearerNonPATToken(t *testing.T) {
+	setupTestDB(t)
+	store := auth.NewSessionStore()
+
+	handler := RequireAuth(store)(okHandler())
+	req := httptest.NewRequest("GET", "/api/v1/test", nil)
+	req.Header.Set("Authorization", "Bearer some-other-token")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 for non-PAT bearer token", w.Code)
+	}
+}
+
+func TestRequireAuth_BearerMalformedAuthorizationHeader(t *testing.T) {
+	setupTestDB(t)
+	store := auth.NewSessionStore()
+
+	handler := RequireAuth(store)(okHandler())
+	req := httptest.NewRequest("GET", "/api/v1/test", nil)
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz") // Basic auth, not Bearer
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 for Basic auth header", w.Code)
+	}
+}
+
+func TestRequireAuth_NoHeaderFallsThroughToCookie(t *testing.T) {
+	setupTestDB(t)
+	store := auth.NewSessionStore()
+	database.CreateUser(&database.User{Username: "alice", PasswordHash: "h", Role: "admin"})
+	user, _ := database.GetUserByUsername("alice")
+	sessionID, _ := store.Create(user.ID)
+
+	handler := RequireAuth(store)(okHandler())
+	req := httptest.NewRequest("GET", "/api/v1/test", nil)
+	// No Authorization header — should fall through to cookie auth
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: sessionID})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (cookie path)", w.Code)
+	}
+	var body map[string]string
+	json.Unmarshal(w.Body.Bytes(), &body)
+	if body["username"] != "alice" {
+		t.Errorf("username = %q, want alice", body["username"])
 	}
 }

@@ -303,6 +303,9 @@ func main() {
 			r.Post("/auth/webauthn/register/finish", handlers.WebAuthnRegisterFinish)
 			r.Get("/auth/webauthn/credentials", handlers.ListWebAuthnCredentials)
 			r.Delete("/auth/webauthn/credentials/{credId}", handlers.DeleteWebAuthnCredential)
+			r.Get("/auth/tokens", handlers.ListAPITokens)
+			r.Post("/auth/tokens", handlers.CreateAPIToken)
+			r.Delete("/auth/tokens/{id}", handlers.DeleteAPIToken)
 		})
 
 		// Protected routes (require auth)
