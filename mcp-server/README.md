@@ -41,8 +41,19 @@ CLAWORC_PASSWORD=secret \
 claude mcp add --transport stdio claworc ./claworc-mcp
 ```
 
-For remote (Streamable HTTP) access from Claude Code on the web, the control
-plane exposes an embedded `/mcp` endpoint instead. See `docs/mcp-server.md`.
+## Embedded endpoint
+
+The control plane also serves this MCP server at `https://<control-plane>/mcp` (no separate process needed).
+To connect from Claude Code (web or local):
+
+```bash
+claude mcp add --transport http claworc https://claworc.example.com/mcp \
+  --header "Authorization: Bearer claworc_pat_xxx"
+```
+
+Create the token in the Claworc dashboard under Account → API Tokens, then copy it and use it in the command above.
+
+For more details, see `docs/mcp-server.md`.
 
 ## Tools
 

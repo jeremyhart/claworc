@@ -9,6 +9,7 @@ for collaboration with the agent.
 The project consists of the following components:
 * Control Plane (Golang backend and React frontend) with dashboard, VNC client for Chromium, Terminal, Logs and other useful stuff.
 * Agent image with OpenClaw installed. It is compatible with both ARM64 and AMD64 architectures.
+* MCP Server (`mcp-server/`) — a Model Context Protocol server that wraps the control-plane REST API so an LLM client can fully manage a Claworc deployment, available both as a standalone stdio binary and embedded as a `/mcp` Streamable-HTTP endpoint on the control plane.
 * Helm chart for deployment to Kubernetes.
 
 ## Repository Structure
@@ -19,6 +20,7 @@ The project consists of the following components:
     - `internal/` - Go packages (config, database, handlers, middleware, orchestrator, sshproxy, sshterminal)
     - `frontend/` - React TypeScript frontend (npm/Vite)
     - `Dockerfile` - Multi-stage build (Node frontend + Go backend)
+- `mcp-server/` - Standalone Go module; own go.mod; reused in-process by the control plane via a replace directive
 - `helm/` - Helm chart for deploying the dashboard to Kubernetes
 - `website/` - Landing page for claworc.com
 - `website_docs/` - End-user documentation powered by Mintlify. It is automatically deployed to claworc.com/docs
@@ -67,6 +69,8 @@ A ring-buffer scrollback captures recent output for replay on reconnect.
 **Frontend**: React 18 + TypeScript + Vite + TailwindCSS v4. Uses TanStack React Query for data fetching 
 (5s polling on instance list), React Router for SPA routing, Monaco Editor for JSON config editing, 
 Axios for API calls. The `@` import alias maps to `src/`.
+
+**MCP Server** (`/mcp` endpoint): Control plane serves MCP at `/mcp` behind `RequireAuth` middleware. Tools execute in-process by replaying the caller's authenticated request through the chi router. Auth via user-scoped bearer API tokens (`claworc_pat_…`), sha256-hashed at rest, managed on the Account page.
 
 
 ## Configuration

@@ -1,12 +1,11 @@
 # MCP Server — Web-Managed Claworc
 
-Status: **Plan / spec** (not yet implemented). This document is the agreed design
-for making a Claworc deployment fully manageable by an LLM through the Model
-Context Protocol (MCP), connectable from **Claude Code on the web** and **local
-Claude Code / desktop**.
+Status: **Implemented**. This document describes the design and implementation of
+an MCP server that makes a Claworc deployment fully manageable by an LLM through
+the Model Context Protocol (MCP), connectable from **Claude Code on the web** and
+**local Claude Code / desktop**.
 
-This branch starts clean from `main`; the implementation described here is built
-fresh on top of it.
+The implementation described here has been built on the `claude/mcp-server-plan` branch.
 
 ## Background
 
@@ -83,7 +82,7 @@ there is no privilege bypass.
 
 ## Work breakdown
 
-### Phase 1 — API token auth (backend)
+### Phase 1 — API token auth (backend) ✓
 
 | File | Change |
 |---|---|
@@ -99,9 +98,9 @@ there is no privilege bypass.
 Tokens are never returned again after creation — only `prefix` and
 `last_used_at` are shown — consistent with how API keys are masked elsewhere.
 
-### Phase 2 — Token management UI (frontend)
+### Phase 2 — Token management UI (frontend) ✓
 
-Mirror the passkey UI on `frontend/src/pages/AccountPage.tsx`:
+The passkey UI on `frontend/src/pages/AccountPage.tsx` has been mirrored:
 
 - `src/types/tokens.ts`, `src/api/tokens.ts`, `src/hooks/useTokens.ts`
   (React Query list/create/delete with `successToast`/`errorToast`).
@@ -110,30 +109,31 @@ Mirror the passkey UI on `frontend/src/pages/AccountPage.tsx`:
   with copy-to-clipboard (the secret is shown exactly once).
 - Styling per `docs/style-guide.md` (button / label / table conventions).
 
-### Phase 3 — Embed MCP over HTTP (backend)
+### Phase 3 — Embed MCP over HTTP (backend) ✓
 
-- Build the `mcp-server` module: tools against the `Doer` interface, the
-  standalone stdio binary (HTTP-client `Doer`), and an HTTP client supporting
-  `CLAWORC_TOKEN` bearer auth (and username/password fallback).
-- New `control-plane/internal/mcpserver/`:
-  - `doer.go` — in-process `Doer`: builds an `*http.Request`, replays the
-    captured auth header, calls `router.ServeHTTP`, returns status + body.
-  - `server.go` — `NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server { … })`
-    capturing auth per session and `tools.Register(s, doer)`.
-- `main.go`: build the chi router into a variable, then mount
-  `r.Handle("/mcp", mcpserver.Handler(r))` behind `RequireAuth`. Add the
-  `mcp-server` require + `replace` directive.
+The `mcp-server` module has been built with tools against the `Doer` interface, including
+the standalone stdio binary (HTTP-client `Doer`) and an HTTP client supporting
+`CLAWORC_TOKEN` bearer auth (and username/password fallback).
 
-### Phase 4 — Docs / CI / wiring
+The `control-plane/internal/mcpserver/` package includes:
+- `doer.go` — in-process `Doer`: builds an `*http.Request`, replays the
+  captured auth header, calls `router.ServeHTTP`, returns status + body.
+- `server.go` — `NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server { … })`
+  capturing auth per session and `tools.Register(s, doer)`.
 
-- This document + `mcp-server/README.md`: setup via
+The control plane's `main.go` mounts `r.Handle("/mcp", mcpserver.Handler(r))` behind `RequireAuth`. The
+`mcp-server` module is imported via `require` + `replace` directive.
+
+### Phase 4 — Docs / CI / wiring ✓
+
+Documentation has been updated:
+- `mcp-server/README.md` includes setup via
   `claude mcp add --transport http claworc https://…/mcp --header "Authorization: Bearer …"`,
-  plus token-creation steps.
-- `CLAUDE.md` architecture note + the new `mcp-server/` component. Helm needs
-  nothing new (the `/mcp` route rides the control plane's existing ingress) — a
-  one-line confirmation only.
-- CI: a `.github/workflows/mcp-server.yml` (gofmt + vet + build + test); the
-  control-plane workflow already covers its own tests.
+  plus token-creation steps, and an "Embedded endpoint" section explaining the control-plane integration.
+- `CLAUDE.md` includes an architecture note for the `mcp-server/` component.
+- Helm deployment notes confirm that the `/mcp` route rides the control plane's existing ingress (no new resources).
+
+CI includes `.github/workflows/mcp-server.yml` (gofmt + vet + build + test) for the `mcp-server` module.
 
 ## Testing
 

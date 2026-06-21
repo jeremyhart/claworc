@@ -1,5 +1,7 @@
 # MCP Server — Multi-Agent Implementation Plan
 
+Status: **Implemented** (all waves complete).
+
 Execution plan for building the design in [`docs/mcp-server.md`](./mcp-server.md)
 using a lead orchestrator plus parallel sub-agents on **Claude Sonnet 4.6** and
 **Claude Haiku 4.5**. Branch: `claude/mcp-server-plan` (clean off `main`).

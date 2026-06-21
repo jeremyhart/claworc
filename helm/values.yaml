@@ -32,6 +32,8 @@ service:
   type: NodePort
   port: 8001
   nodePort: 30000
+  # The MCP endpoint at /mcp is served by this Service/Ingress (no separate resource needed).
+  # See docs/mcp-server.md for setup details.
 
 persistence:
   enabled: true
