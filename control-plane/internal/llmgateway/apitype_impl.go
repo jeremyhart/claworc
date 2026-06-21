@@ -147,6 +147,37 @@ func (anthropicMessages) ProbeHeaders(req *http.Request) {
 	req.Header.Set("anthropic-version", "2023-06-01")
 }
 
+// --- anthropicOAuth (Claude subscription via Claude Code OAuth) ---
+//
+// Embeds anthropicMessages for path rewriting and usage parsing — the upstream
+// is still api.anthropic.com /v1/messages. The only differences are auth: a
+// subscription bearer token instead of x-api-key, plus the oauth anthropic-beta
+// flag. The "You are Claude Code" system identity is injected by the body
+// rewriter (request_rewriter_anthropic.go), not here.
+
+type anthropicOAuth struct {
+	anthropicMessages
+}
+
+func (anthropicOAuth) SetAuthHeader(req *http.Request, mat AuthMaterial) {
+	// x-api-key is already stripped by buildUpstreamRequest's skip map.
+	req.Header.Set("Authorization", "Bearer "+mat.OAuthAccess)
+	// Merge the oauth beta flag with any anthropic-beta OpenClaw already sent
+	// (e.g. prompt-caching, interleaved-thinking) rather than clobbering it.
+	if existing := req.Header.Get("anthropic-beta"); existing != "" {
+		if !strings.Contains(existing, AnthropicOAuthBetaHeader) {
+			req.Header.Set("anthropic-beta", existing+","+AnthropicOAuthBetaHeader)
+		}
+	} else {
+		req.Header.Set("anthropic-beta", AnthropicOAuthBetaHeader)
+	}
+}
+
+func (anthropicOAuth) ProbeHeaders(req *http.Request) {
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-beta", AnthropicOAuthBetaHeader)
+}
+
 // --- googleGenerativeAI ---
 
 type googleGenerativeAI struct{}

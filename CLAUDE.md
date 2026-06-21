@@ -78,6 +78,8 @@ Backend settings use `envconfig` with `CLAWORC_` env prefix (see `internal/confi
 - `CLAWORC_TERMINAL_HISTORY_LINES` - Scrollback buffer size in lines (default: `1000`, `0` to disable)
 - `CLAWORC_TERMINAL_RECORDING_DIR` - Directory for audit recordings (default: empty, disabled)
 - `CLAWORC_TERMINAL_SESSION_TIMEOUT` - Idle detached session timeout (default: `30m`)
+- `CLAWORC_CLAUDE_CONFIG_DIR` - Directory holding the `claude` CLI `.credentials.json` for the shared Claude subscription (`anthropic-oauth` providers); default `~/.claude`
+- `CLAWORC_CLAUDE_REFRESH_CMD` - Command the gateway runs to refresh the subscription token near expiry (the `claude` CLI owns the refresh); empty disables on-demand refresh
 
 ## Key Conventions
 

@@ -124,7 +124,14 @@ func authAndResolve(r *http.Request) (instanceID, providerID uint, providerKey, 
 	}
 	providerModels = database.ParseProviderModels(key.Provider.Models)
 
-	if IsOAuthAPIType(apiType) {
+	if apiType == APITypeAnthropicOAuth {
+		access, oauthErr := EnsureFreshAnthropicToken(r.Context())
+		if oauthErr != nil {
+			err = fmt.Errorf("oauth: %w", oauthErr)
+			return
+		}
+		mat = AuthMaterial{OAuthAccess: access}
+	} else if IsOAuthAPIType(apiType) {
 		access, account, oauthErr := EnsureFreshOAuthToken(r.Context(), key.ProviderID)
 		if oauthErr != nil {
 			err = fmt.Errorf("oauth: %w", oauthErr)
@@ -255,6 +262,12 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	// extra fields, stripped fields). Translate before forwarding.
 	if apiType == APITypeOpenAICodexResponses {
 		body = rewriteCodexRequestBody(body)
+	}
+
+	// For Claude-subscription providers, inject the "You are Claude Code"
+	// system identity that Anthropic requires on OAuth-authenticated requests.
+	if apiType == APITypeAnthropicOAuth {
+		body = rewriteAnthropicOAuthRequestBody(body)
 	}
 
 	// Use context.Background() instead of r.Context() so that a client disconnect

@@ -110,6 +110,32 @@ export async function deleteProvider(id: number): Promise<void> {
   await client.delete(`/llm/providers/${id}`);
 }
 
+// ---------------------------------------------------------------------------
+// Shared Claude subscription (Claude Code OAuth) link status
+// ---------------------------------------------------------------------------
+
+export interface ClaudeSubscriptionStatus {
+  linked: boolean;
+  subscription_type?: string;
+  expires_at?: number; // unix ms
+  scopes?: string[];
+  credentials_path: string;
+}
+
+export async function fetchClaudeSubscription(): Promise<ClaudeSubscriptionStatus> {
+  const { data } = await client.get<ClaudeSubscriptionStatus>("/llm/claude-subscription");
+  return data;
+}
+
+export async function refreshClaudeSubscription(): Promise<ClaudeSubscriptionStatus> {
+  const { data } = await client.post<ClaudeSubscriptionStatus>("/llm/claude-subscription/refresh");
+  return data;
+}
+
+export async function disconnectClaudeSubscription(): Promise<void> {
+  await client.delete("/llm/claude-subscription");
+}
+
 export interface SyncAllResponse {
   catalog: CatalogProviderSummary[];
   results: {

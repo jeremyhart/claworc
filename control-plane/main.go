@@ -454,6 +454,11 @@ func main() {
 				r.Delete("/llm/usage", handlers.ResetUsageLogs)
 				r.Get("/llm/usage/stats", handlers.GetUsageStats)
 
+				// Shared Claude subscription (Claude Code OAuth) link status
+				r.Get("/llm/claude-subscription", handlers.GetClaudeSubscription)
+				r.Post("/llm/claude-subscription/refresh", handlers.RefreshClaudeSubscription)
+				r.Delete("/llm/claude-subscription", handlers.DisconnectClaudeSubscription)
+
 				// Provider catalog proxy (claworc.com/providers, cached 1h)
 				r.Get("/llm/catalog", handlers.GetCatalogProviders)
 				r.Get("/llm/catalog/{key}", handlers.GetCatalogProviderDetail)

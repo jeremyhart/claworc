@@ -27,6 +27,16 @@ type Settings struct {
 	// LLM gateway settings
 	LLMGatewayPort int    `envconfig:"LLM_GATEWAY_PORT" default:"40001"`
 	LLMResponseLog string `envconfig:"LLM_RESPONSE_LOG" default:""`
+
+	// Claude subscription (Claude Code OAuth) settings. The gateway reads the
+	// `claude` CLI credentials file to authenticate anthropic-oauth providers
+	// with a shared subscription. See docs/virtual-keys.md.
+	// ClaudeConfigDir: directory holding `.credentials.json` (default ~/.claude).
+	ClaudeConfigDir string `envconfig:"CLAUDE_CONFIG_DIR" default:""`
+	// ClaudeRefreshCmd: command the gateway runs to refresh the subscription
+	// token when it nears expiry (the `claude` CLI owns the refresh). Empty
+	// disables on-demand refresh — rely on an external keep-alive instead.
+	ClaudeRefreshCmd string `envconfig:"CLAUDE_REFRESH_CMD" default:""`
 }
 
 var Cfg Settings

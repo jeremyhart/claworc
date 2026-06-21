@@ -7,6 +7,14 @@ import "net/http"
 // than a static API key.
 const APITypeOpenAICodexResponses = "openai-codex-responses"
 
+// APITypeAnthropicOAuth is the api_type identifier for the Anthropic Messages
+// endpoint authenticated with a shared Claude subscription (Claude Code OAuth
+// bearer token) instead of a static API key. The credential is read from the
+// `claude` CLI's credentials file on the control-plane host — see
+// oauth_anthropic.go. OpenClaw is told this provider is plain
+// "anthropic-messages"; only the DB record and gateway carry this type.
+const APITypeAnthropicOAuth = "anthropic-oauth"
+
 // AuthMaterial bundles the credentials needed to set outgoing auth headers on
 // an upstream provider request. Static-key providers populate APIKey;
 // OAuth-based providers (currently openai-codex-responses) populate the OAuth*
@@ -37,6 +45,8 @@ func GetAPIType(apiType string) APIType {
 		return openAICodexResponses{}
 	case "anthropic-messages":
 		return anthropicMessages{}
+	case APITypeAnthropicOAuth:
+		return anthropicOAuth{}
 	case "google-generative-ai":
 		return googleGenerativeAI{}
 	case "ollama":
@@ -52,5 +62,5 @@ func GetAPIType(apiType string) APIType {
 // rather than a static API key. Used by the gateway to decide whether to
 // resolve an access token (with refresh) instead of decrypting APIKey.
 func IsOAuthAPIType(apiType string) bool {
-	return apiType == APITypeOpenAICodexResponses
+	return apiType == APITypeOpenAICodexResponses || apiType == APITypeAnthropicOAuth
 }

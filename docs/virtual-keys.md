@@ -162,6 +162,7 @@ calls the provider.
 | `openai-responses` | openai SDK `/responses` | `Authorization: Bearer` | ends with `/v1` | `https://api.openai.com/v1` |
 | `openai-codex-responses` | openai SDK `/responses` | `Authorization: Bearer` | ends with `/v1` | — |
 | `anthropic-messages` | @anthropic-ai/sdk `/v1/messages` | `x-api-key` | root URL (no `/v1`) | `https://api.anthropic.com` |
+| `anthropic-oauth` | @anthropic-ai/sdk `/v1/messages` (declared as `anthropic-messages`) | `x-api-key` | root URL (no `/v1`) | `https://api.anthropic.com` |
 | `google-generative-ai` | @google/genai SDK | `x-goog-api-key` | ends with `/v1beta` | `https://generativelanguage.googleapis.com/v1beta` |
 | `github-copilot` | @anthropic-ai/sdk | `Authorization: Bearer` | dynamic | — |
 | `bedrock-converse-stream` | AWS SDK | `Authorization: Bearer` | AWS region URL | `https://bedrock-runtime.{region}.amazonaws.com` |
@@ -173,6 +174,38 @@ calls the provider.
   `Authorization: Bearer`, `x-api-key`, `x-goog-api-key`, `?key=` query param.
 - The gateway always strips all incoming auth headers before forwarding, then sets the correct
   outgoing auth header based on `api_type`.
+
+### Shared Claude subscription (`anthropic-oauth`)
+
+`anthropic-oauth` lets every instance ride on a single Claude subscription (Claude Code / Max / Pro)
+instead of a per-provider Anthropic API key. It reuses the existing virtual-key plumbing: OpenClaw is
+told the provider is plain `anthropic-messages` and keeps sending its `claworc-vk-*` key; the gateway
+swaps the credential.
+
+How it works:
+
+1. An operator runs `claude login` once on the **control-plane host** (the `claude` CLI is installed
+   in the control-plane image). Claude Code writes its subscription OAuth token to
+   `$CLAWORC_CLAUDE_CONFIG_DIR/.credentials.json` (default `~/.claude/.credentials.json`).
+2. A provider with `api_type = anthropic-oauth` and `base_url = https://api.anthropic.com` is created.
+   It stores **no** API key or OAuth token — the credential lives in the file on the host.
+3. On each request the gateway reads the access token from the credentials file
+   (`internal/llmgateway/oauth_anthropic.go`), strips the incoming `x-api-key`, and forwards to
+   `api.anthropic.com` with:
+   - `Authorization: Bearer <subscription access token>`
+   - `anthropic-beta: oauth-2025-04-20` (merged with any beta flags OpenClaw already sent)
+   - a `system` block prepended with the Claude Code identity (`request_rewriter_anthropic.go`) —
+     Anthropic requires this on OAuth-authenticated requests.
+4. Token refresh is owned by the `claude` CLI, not the gateway. When the cached token nears expiry the
+   gateway runs `CLAWORC_CLAUDE_REFRESH_CMD` (if set) and re-reads the file; it never calls the OAuth
+   token endpoint directly. Leave the command unset to rely on an external keep-alive/scheduled job.
+
+Link status, on-demand refresh, and disconnect are exposed at
+`/api/v1/llm/claude-subscription` (`GET` / `POST .../refresh` / `DELETE`) and surfaced in the
+providers UI ("Claude subscription (Claude Code)").
+
+> Note: serving multiple instances from one personal Claude subscription is a gray area in Anthropic's
+> terms of service. This is intended for self-hosted orchestrators using their own subscription.
 
 ### Base URL notes
 

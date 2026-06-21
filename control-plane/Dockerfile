@@ -22,7 +22,12 @@ RUN CGO_ENABLED=1 go build -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M
 
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates sqlite-libs
+# nodejs/npm are needed for the `claude` CLI (Claude Code), which the
+# orchestrator uses to log into and refresh a shared Claude subscription
+# (anthropic-oauth providers). See docs/virtual-keys.md.
+RUN apk add --no-cache ca-certificates sqlite-libs nodejs npm \
+    && npm install -g @anthropic-ai/claude-code \
+    && npm cache clean --force
 
 WORKDIR /app
 

@@ -301,6 +301,11 @@ func buildOpenClawProvidersJSON(models []string, gatewayProviders map[string]Gat
 		if declaredAPI == llmgateway.APITypeOpenAICodexResponses {
 			declaredAPI = "openai-responses"
 		}
+		// Claude-subscription providers look like a normal Anthropic provider to
+		// OpenClaw; the gateway swaps the virtual key for the subscription token.
+		if declaredAPI == llmgateway.APITypeAnthropicOAuth {
+			declaredAPI = "anthropic-messages"
+		}
 		providers[providerKey] = openclawProviderCfg{
 			BaseURL: fmt.Sprintf("http://127.0.0.1:%d", gatewayPort),
 			API:     declaredAPI,

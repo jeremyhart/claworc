@@ -356,7 +356,7 @@ func toProviderResp(p database.LLMProvider) providerResp {
 			masked = utils.Mask(decrypted)
 		}
 	}
-	return providerResp{
+	resp := providerResp{
 		ID:             p.ID,
 		Key:            p.Key,
 		InstanceID:     p.InstanceID,
@@ -372,6 +372,41 @@ func toProviderResp(p database.LLMProvider) providerResp {
 		CreatedAt:      formatTimestamp(p.CreatedAt),
 		UpdatedAt:      formatTimestamp(p.UpdatedAt),
 	}
+	// Claude-subscription providers carry no per-provider tokens; their
+	// connection state lives in the `claude` CLI credentials file on the host.
+	if p.APIType == llmgateway.APITypeAnthropicOAuth {
+		st := llmgateway.GetAnthropicSubscriptionStatus()
+		resp.OAuthConnected = st.Linked
+		resp.OAuthExpiresAt = st.ExpiresAt
+		resp.OAuthEmail = st.SubscriptionType
+	}
+	return resp
+}
+
+// GetClaudeSubscription reports whether a shared Claude subscription (Claude
+// Code OAuth) is linked on the orchestrator. Used by the providers UI.
+func GetClaudeSubscription(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, llmgateway.GetAnthropicSubscriptionStatus())
+}
+
+// RefreshClaudeSubscription forces a token refresh via the `claude` CLI and
+// returns the updated status.
+func RefreshClaudeSubscription(w http.ResponseWriter, r *http.Request) {
+	if _, err := llmgateway.EnsureFreshAnthropicToken(r.Context()); err != nil {
+		writeError(w, http.StatusBadGateway, "Refresh failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, llmgateway.GetAnthropicSubscriptionStatus())
+}
+
+// DisconnectClaudeSubscription removes the credentials file, unlinking the
+// shared subscription from all instances.
+func DisconnectClaudeSubscription(w http.ResponseWriter, r *http.Request) {
+	if err := llmgateway.DisconnectAnthropicSubscription(); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to disconnect: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func ListProviders(w http.ResponseWriter, r *http.Request) {
@@ -427,12 +462,14 @@ func CreateProvider(w http.ResponseWriter, r *http.Request) {
 	if apiType == "" {
 		apiType = "openai-completions"
 	}
-	if llmgateway.IsOAuthAPIType(apiType) {
+	if apiType == llmgateway.APITypeOpenAICodexResponses {
 		if body.OAuth == nil {
 			writeError(w, http.StatusBadRequest, "OAuth completion required for openai-codex-responses providers")
 			return
 		}
-	} else if body.Provider != "" && strings.TrimSpace(body.APIKey) == "" {
+	} else if !llmgateway.IsOAuthAPIType(apiType) && body.Provider != "" && strings.TrimSpace(body.APIKey) == "" {
+		// anthropic-oauth (Claude subscription) carries no per-provider key — the
+		// gateway swaps the virtual key for the shared subscription token.
 		writeError(w, http.StatusBadRequest, "api_key is required for catalog providers")
 		return
 	}
@@ -474,7 +511,7 @@ func CreateProvider(w http.ResponseWriter, r *http.Request) {
 		}
 		p.InstanceID = body.InstanceID
 	}
-	if llmgateway.IsOAuthAPIType(apiType) {
+	if apiType == llmgateway.APITypeOpenAICodexResponses {
 		encA, encR, email, accountID, expiresAt, err := exchangeCodexOAuth(r.Context(), body.OAuth)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "ChatGPT login failed: "+err.Error())
@@ -563,8 +600,8 @@ func UpdateProvider(w http.ResponseWriter, r *http.Request) {
 		p.APIKey = encrypted
 	}
 	if body.OAuth != nil {
-		if !llmgateway.IsOAuthAPIType(p.APIType) {
-			writeError(w, http.StatusBadRequest, "Provider does not use OAuth")
+		if p.APIType != llmgateway.APITypeOpenAICodexResponses {
+			writeError(w, http.StatusBadRequest, "Provider does not use paste-based OAuth")
 			return
 		}
 		encA, encR, email, accountID, expiresAt, err := exchangeCodexOAuth(r.Context(), body.OAuth)

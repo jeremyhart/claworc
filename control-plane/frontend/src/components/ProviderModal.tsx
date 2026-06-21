@@ -1,9 +1,9 @@
 import { createElement, useState, useEffect } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import ProviderIcon from "@/components/ProviderIcon";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreateProvider, useUpdateProvider, useDeleteProvider, useCatalogProviders, useCatalogProviderDetail, useCatalogIconMap } from "@/hooks/useProviders";
-import { syncAllProviders, testProviderKey } from "@/api/llm";
+import { syncAllProviders, testProviderKey, fetchClaudeSubscription, refreshClaudeSubscription, disconnectClaudeSubscription } from "@/api/llm";
 import {
   buildCodexAuthorizeURL,
   extractCodeAndState,
@@ -17,6 +17,11 @@ import type { LLMProvider, ProviderModel } from "@/types/instance";
 
 const CUSTOM_PROVIDER = "__custom__";
 const CODEX_API_TYPE = "openai-codex-responses";
+// Synthetic provider-picker option for a shared Claude subscription. Selecting
+// it creates an anthropic-oauth provider that rides on the orchestrator's
+// `claude login` instead of a per-provider API key.
+const CLAUDE_SUB_PROVIDER = "__claude_subscription__";
+const ANTHROPIC_OAUTH_API_TYPE = "anthropic-oauth";
 
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -185,9 +190,12 @@ export default function ProviderModal({
   const isCodexEdit =
     mode === "edit" && provider?.api_type === CODEX_API_TYPE;
   const isCodex = isCodexCreate || isCodexEdit;
+  const isClaudeSubCreate = mode === "create" && mCatalogKey === CLAUDE_SUB_PROVIDER;
+  const isClaudeSubEdit = mode === "edit" && provider?.api_type === ANTHROPIC_OAUTH_API_TYPE;
+  const isClaudeSub = isClaudeSubCreate || isClaudeSubEdit;
   const isCustomProvider =
     mCatalogKey === CUSTOM_PROVIDER ||
-    (mode === "edit" && !provider?.provider && !isCodexEdit);
+    (mode === "edit" && !provider?.provider && !isCodexEdit && !isClaudeSubEdit);
 
   const handleCatalogKeyChange = (val: string) => {
     setMCatalogKey(val);
@@ -196,6 +204,11 @@ export default function ProviderModal({
       setMName("");
       setMBaseURL("");
       setMApiType("openai-completions");
+    } else if (val === CLAUDE_SUB_PROVIDER) {
+      setMProvider("anthropic");
+      setMName("Claude Subscription");
+      setMBaseURL("https://api.anthropic.com");
+      setMApiType(ANTHROPIC_OAUTH_API_TYPE);
     } else if (val) {
       const cat = catalogProviders.find((c) => c.name === val);
       if (cat) {
@@ -207,6 +220,7 @@ export default function ProviderModal({
   };
 
   const resolveApiType = (): string => {
+    if (isClaudeSub) return ANTHROPIC_OAUTH_API_TYPE;
     if (isCustomProvider) return mApiType;
     if (mode === "edit") return provider!.api_type || "openai-completions";
     const catalogEntry = catalogProviders.find((c) => c.name === mCatalogKey);
@@ -320,7 +334,31 @@ export default function ProviderModal({
     const toastId = mode === "create" ? "provider-create" : `provider-update-${provider!.id}`;
     showLoadingToast(toastId, mode === "create" ? "Adding provider..." : "Updating provider...");
     try {
-      if (mode === "create") {
+      if (mode === "create" && isClaudeSubCreate) {
+        // Claude subscription: no per-provider key; models come from the
+        // anthropic catalog entry (or the backend auto-fetches when omitted).
+        const anthropicCat = catalogProviders.find((c) => c.name === "anthropic");
+        const subModels = (anthropicCat?.models || []).map((m) => ({
+          id: m.model_id,
+          name: m.model_name,
+          reasoning: m.reasoning,
+          contextWindow: m.context_window ?? undefined,
+          maxTokens: m.max_tokens ?? undefined,
+          cost:
+            m.input_cost || m.output_cost || m.cached_read_cost || m.cached_write_cost
+              ? { input: m.input_cost, output: m.output_cost, cacheRead: m.cached_read_cost, cacheWrite: m.cached_write_cost }
+              : undefined,
+        }));
+        await createProviderMutation.mutateAsync({
+          key,
+          provider: "anthropic",
+          name: mName.trim() || "Claude Subscription",
+          base_url: "https://api.anthropic.com",
+          api_type: ANTHROPIC_OAUTH_API_TYPE,
+          models: subModels.length ? subModels : undefined,
+          instance_id: instanceId,
+        });
+      } else if (mode === "create") {
         const apiType = resolveApiType();
         const models = isCustomProvider ? mModels : (() => {
           const cat = catalogProviders.find((c) => c.name === mCatalogKey);
@@ -415,7 +453,7 @@ export default function ProviderModal({
     !!mName &&
     !!mBaseURL &&
     (!isCustomProvider || mModels.length > 0) &&
-    (mode === "edit" || isCustomProvider || isOAuthApiType || !!mApiKey.trim()) &&
+    (mode === "edit" || isCustomProvider || isOAuthApiType || isClaudeSub || !!mApiKey.trim()) &&
     !createProviderMutation.isPending &&
     !updateProviderMutation.isPending;
 
@@ -475,6 +513,7 @@ export default function ProviderModal({
                     {cat.label}
                   </option>
                 ))}
+                <option value={CLAUDE_SUB_PROVIDER}>Claude subscription (Claude Code)</option>
                 <option value={CUSTOM_PROVIDER}>Custom (self-hosted / unlisted)</option>
               </select>
             </div>
@@ -653,8 +692,12 @@ export default function ProviderModal({
             </>
           )}
 
-          {/* API Key — hidden for OAuth providers (replaced by ChatGPT connect panel) */}
-          {showForm && resolveApiType() !== "openai-codex-responses" && (
+          {/* Claude subscription — link status + connect instructions (shown in
+               both create and edit; the credential lives on the orchestrator). */}
+          {showForm && isClaudeSub && <ClaudeSubscriptionPanel />}
+
+          {/* API Key — hidden for OAuth providers (replaced by connect panels) */}
+          {showForm && !isClaudeSub && resolveApiType() !== "openai-codex-responses" && (
             <div>
               <label className="block text-xs text-gray-500 mb-1">
                 API Key{" "}
@@ -903,6 +946,128 @@ function CodexOAuthPanel({ provider, onChanged }: { provider: LLMProvider; onCha
           {busy ? "Starting..." : "Connect ChatGPT"}
         </button>
       )}
+    </div>
+  );
+}
+
+// ClaudeSubscriptionPanel shows the link status of the shared Claude
+// subscription (Claude Code OAuth) that lives on the orchestrator. Unlike the
+// ChatGPT flow, login is performed once on the control plane via `claude login`
+// (the credential is host-level, not per-provider), so this panel only reports
+// status and offers Refresh / Disconnect. Every anthropic-oauth provider rides
+// on this single subscription.
+function ClaudeSubscriptionPanel() {
+  const queryClient = useQueryClient();
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["claude-subscription"],
+    queryFn: fetchClaudeSubscription,
+    staleTime: 10_000,
+  });
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async () => {
+    setBusy(true);
+    try {
+      await refreshClaudeSubscription();
+      await queryClient.invalidateQueries({ queryKey: ["claude-subscription"] });
+      successToast("Subscription token refreshed");
+    } catch (err) {
+      errorToast("Refresh failed", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    setBusy(true);
+    try {
+      await disconnectClaudeSubscription();
+      await queryClient.invalidateQueries({ queryKey: ["claude-subscription"] });
+      successToast("Subscription disconnected");
+    } catch (err) {
+      errorToast("Disconnect failed", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="border border-gray-200 bg-gray-50 rounded-md p-3 text-xs text-gray-500">
+        Checking subscription status…
+      </div>
+    );
+  }
+
+  if (status?.linked) {
+    const expiresIn = status.expires_at
+      ? Math.max(0, Math.round((status.expires_at - Date.now()) / 60000))
+      : null;
+    return (
+      <div className="border border-emerald-200 bg-emerald-50 rounded-md p-3 space-y-2">
+        <div className="text-xs">
+          <div className="text-emerald-700 font-medium">✓ Claude subscription linked</div>
+          {status.subscription_type && (
+            <div className="text-gray-600 mt-1">
+              <span className="text-gray-500">Plan:</span>{" "}
+              <span className="font-mono">{status.subscription_type}</span>
+            </div>
+          )}
+          {expiresIn !== null && (
+            <div className="text-gray-500 mt-0.5">
+              Access token expires in {expiresIn} min (refreshed by the orchestrator)
+            </div>
+          )}
+          <p className="text-gray-500 mt-1">
+            All instances using this provider share this subscription instead of an API key.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={busy}
+            className="px-3 py-1 text-xs font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+          >
+            {busy ? "Working…" : "Refresh"}
+          </button>
+          <button
+            type="button"
+            onClick={disconnect}
+            disabled={busy}
+            className="px-3 py-1 text-xs font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50 disabled:opacity-50"
+          >
+            Disconnect
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-amber-200 bg-amber-50 rounded-md p-3 space-y-2">
+      <div className="text-xs text-gray-700">
+        <div className="font-medium text-gray-800">Link the orchestrator's Claude subscription</div>
+        <p className="mt-1 text-gray-600">
+          No subscription is linked yet. On the control plane host, run a one-time login:
+        </p>
+        <pre className="mt-1 px-2 py-1 bg-white border border-gray-200 rounded font-mono text-[11px] text-gray-700 overflow-x-auto">
+          claude login
+        </pre>
+        <p className="mt-1 text-gray-500">
+          Credentials are read from{" "}
+          <span className="font-mono">{status?.credentials_path || "~/.claude/.credentials.json"}</span>.
+          You can still save this provider now and link the subscription afterwards.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={refresh}
+        disabled={busy}
+        className="px-3 py-1 text-xs font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+      >
+        {busy ? "Checking…" : "Re-check status"}
+      </button>
     </div>
   );
 }
