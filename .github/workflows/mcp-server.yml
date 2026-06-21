@@ -1,0 +1,51 @@
+name: MCP Server
+
+on:
+  push:
+    paths:
+      - 'mcp-server/**'
+      - '.github/workflows/mcp-server.yml'
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mcp-server/go.mod
+          cache-dependency-path: mcp-server/go.sum
+
+      - name: Cache Go build & test cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/Library/Caches/go-build
+          key: ${{ runner.os }}-gobuild-mcp-${{ hashFiles('mcp-server/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gobuild-mcp-
+
+      - name: Verify gofmt
+        working-directory: mcp-server
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        working-directory: mcp-server
+        run: go vet ./...
+
+      - name: Build
+        working-directory: mcp-server
+        run: go build ./...
+
+      - name: Run tests
+        working-directory: mcp-server
+        run: go test ./...

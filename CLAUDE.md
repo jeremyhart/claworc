@@ -10,6 +10,7 @@ The project consists of the following components:
 * Control Plane (Golang backend and React frontend) with dashboard, VNC client for Chromium, Terminal, Logs and other useful stuff.
 * Agent image with OpenClaw installed. It is compatible with both ARM64 and AMD64 architectures.
 * Helm chart for deployment to Kubernetes.
+* MCP Server (`mcp-server/`) — a Model Context Protocol server that wraps the control-plane REST API so an LLM client can fully manage a Claworc deployment over stdio.
 
 ## Repository Structure
 
@@ -19,6 +20,7 @@ The project consists of the following components:
     - `internal/` - Go packages (config, database, handlers, middleware, orchestrator, sshproxy, sshterminal)
     - `frontend/` - React TypeScript frontend (npm/Vite)
     - `Dockerfile` - Multi-stage build (Node frontend + Go backend)
+- `mcp-server/` - Standalone MCP server (Go) wrapping the control-plane REST API for LLM management. Own Go module; talks to the control plane over HTTP with session-cookie auth. See `mcp-server/README.md`.
 - `helm/` - Helm chart for deploying the dashboard to Kubernetes
 - `website/` - Landing page for claworc.com
 - `website_docs/` - End-user documentation powered by Mintlify. It is automatically deployed to claworc.com/docs
