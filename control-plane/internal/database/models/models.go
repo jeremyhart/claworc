@@ -407,3 +407,17 @@ type WebAuthnCredential struct {
 	AAGUID          []byte    `json:"-"`
 	CreatedAt       time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
+
+// APIToken is a user-scoped bearer token for programmatic access to the
+// control-plane API (e.g. MCP server). Only the SHA-256 hash of the
+// plaintext is stored; the plaintext is shown exactly once at creation time.
+type APIToken struct {
+	ID         uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID     uint       `gorm:"not null;index" json:"user_id"`
+	Name       string     `gorm:"not null" json:"name"`
+	TokenHash  string     `gorm:"not null;uniqueIndex;size:64" json:"-"`
+	Prefix     string     `gorm:"not null" json:"prefix"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	CreatedAt  time.Time  `gorm:"autoCreateTime" json:"created_at"`
+}

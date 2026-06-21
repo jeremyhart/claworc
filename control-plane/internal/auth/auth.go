@@ -2,7 +2,9 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"sync"
 	"time"
 
@@ -92,6 +94,25 @@ func (s *SessionStore) DeleteByUserIDExcept(userID uint, exceptSessionID string)
 		}
 	}
 	s.mu.Unlock()
+}
+
+// GenerateAPIToken creates a new plaintext API token together with its
+// SHA-256 hash (for storage) and a short display prefix.
+//
+//   - plain:  "claworc_pat_" + 64 hex chars (32 random bytes)
+//   - hash:   hex(sha256(plain))   — the only value persisted in the DB
+//   - prefix: "claworc_pat_" + first 6 chars of the hex random portion
+func GenerateAPIToken() (plain, hash, prefix string, err error) {
+	b := make([]byte, 32)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", "", fmt.Errorf("generate api token: %w", err)
+	}
+	hexRandom := hex.EncodeToString(b)
+	plain = "claworc_pat_" + hexRandom
+	sum := sha256.Sum256([]byte(plain))
+	hash = hex.EncodeToString(sum[:])
+	prefix = "claworc_pat_" + hexRandom[:6]
+	return plain, hash, prefix, nil
 }
 
 func (s *SessionStore) Cleanup() {

@@ -2,8 +2,12 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gluk-w/claworc/control-plane/internal/auth"
 	"github.com/gluk-w/claworc/control-plane/internal/config"
@@ -28,6 +32,40 @@ func RequireAuth(store *auth.SessionStore) func(http.Handler) http.Handler {
 				if err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]string{"detail": "No admin user found"})
 					return
+				}
+				ctx := context.WithValue(r.Context(), userContextKey, user)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			// Bearer API token path — checked before the cookie so that API
+			// clients that set Authorization can always reach the endpoints.
+			if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+				const bearerPrefix = "Bearer "
+				if !strings.HasPrefix(authHeader, bearerPrefix) {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"detail": "Authentication required"})
+					return
+				}
+				token := authHeader[len(bearerPrefix):]
+				if !strings.HasPrefix(token, "claworc_pat_") {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"detail": "Authentication required"})
+					return
+				}
+				sum := sha256.Sum256([]byte(token))
+				tokenHash := hex.EncodeToString(sum[:])
+				tok, err := database.GetAPITokenByHash(tokenHash)
+				if err != nil || (tok.ExpiresAt != nil && time.Now().After(*tok.ExpiresAt)) {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"detail": "Authentication required"})
+					return
+				}
+				user, err := database.GetUserByID(tok.UserID)
+				if err != nil {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"detail": "Authentication required"})
+					return
+				}
+				// Throttle last_used_at updates to at most once per minute.
+				if tok.LastUsedAt == nil || time.Since(*tok.LastUsedAt) >= time.Minute {
+					_ = database.TouchAPITokenLastUsed(tok.ID)
 				}
 				ctx := context.WithValue(r.Context(), userContextKey, user)
 				next.ServeHTTP(w, r.WithContext(ctx))

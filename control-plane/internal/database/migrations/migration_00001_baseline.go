@@ -60,5 +60,6 @@ func AutoMigrateAll(gdb interface {
 		&models.Team{},
 		&models.TeamMember{},
 		&models.TeamProvider{},
+		&models.APIToken{},
 	)
 }

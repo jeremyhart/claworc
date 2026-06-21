@@ -32,6 +32,7 @@ type (
 	KanbanArtifact     = models.KanbanArtifact
 	InstanceSoul       = models.InstanceSoul
 	WebAuthnCredential = models.WebAuthnCredential
+	APIToken           = models.APIToken
 )
 
 // Helper re-exports keep `database.ParseTeamIDs(...)` etc. working for

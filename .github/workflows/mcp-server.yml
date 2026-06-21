@@ -1,0 +1,40 @@
+name: MCP Server
+
+on:
+  push:
+    paths:
+      - 'mcp-server/**'
+      - '.github/workflows/mcp-server.yml'
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mcp-server/go.mod
+          cache-dependency-path: mcp-server/go.sum
+
+      - name: Check gofmt
+        working-directory: mcp-server
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "gofmt check failed:"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: Run go vet
+        working-directory: mcp-server
+        run: go vet ./...
+
+      - name: Build
+        working-directory: mcp-server
+        run: go build ./...
+
+      - name: Run tests
+        working-directory: mcp-server
+        run: go test ./...

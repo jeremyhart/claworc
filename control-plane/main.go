@@ -23,6 +23,7 @@ import (
 	"github.com/gluk-w/claworc/control-plane/internal/database"
 	"github.com/gluk-w/claworc/control-plane/internal/handlers"
 	"github.com/gluk-w/claworc/control-plane/internal/llmgateway"
+	"github.com/gluk-w/claworc/control-plane/internal/mcpserver"
 	"github.com/gluk-w/claworc/control-plane/internal/middleware"
 	"github.com/gluk-w/claworc/control-plane/internal/moderator"
 	"github.com/gluk-w/claworc/control-plane/internal/modwiring"
@@ -303,6 +304,9 @@ func main() {
 			r.Post("/auth/webauthn/register/finish", handlers.WebAuthnRegisterFinish)
 			r.Get("/auth/webauthn/credentials", handlers.ListWebAuthnCredentials)
 			r.Delete("/auth/webauthn/credentials/{credId}", handlers.DeleteWebAuthnCredential)
+			r.Get("/auth/tokens", handlers.ListAPITokens)
+			r.Post("/auth/tokens", handlers.CreateAPIToken)
+			r.Delete("/auth/tokens/{id}", handlers.DeleteAPIToken)
 		})
 
 		// Protected routes (require auth)
@@ -493,6 +497,15 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireAuth(sessionStore))
 		r.HandleFunc("/openclaw/{id}/*", handlers.ControlProxy)
+	})
+
+	// MCP over Streamable HTTP — bearer token auth required.
+	// The in-process Doer replays the caller's Authorization header through the
+	// same router, so RequireAuth and all role checks run on every tool call.
+	r.Group(func(pr chi.Router) {
+		pr.Use(middleware.RequireAuth(sessionStore))
+		pr.Handle("/mcp", mcpserver.NewHandler(r))
+		pr.Handle("/mcp/*", mcpserver.NewHandler(r))
 	})
 
 	// SPA static files (embedded)
