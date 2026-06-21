@@ -132,6 +132,13 @@ Wave 3  T5 [Haiku] docs   T6 [Haiku] CI   (parallel)
 - **Output:** a short note in this file's §6 confirming the hook, or an
   alternative (e.g. context value) if not. **Blocks T4.**
 - **Verify:** the throwaway prints the forwarded header.
+- **RESULT (resolved):** `h.getServer(req)` is called inside
+  `StreamableHTTPHandler.ServeHTTP` (SDK v1.6.1 `streamable.go:401`) with the
+  live `*http.Request` on session creation. T4 captures the `Authorization`
+  header in the `getServer` factory and binds it into the in-process `Doer`.
+  Since the outer `/mcp` route and the replayed request both re-run
+  `RequireAuth`, token revocation/expiry is honored per request. No alternative
+  needed.
 
 ### T1 — Backend API-token auth `[Sonnet]` (Wave 1)
 - **Owns (exclusive):** `internal/database/models/models.go`,
