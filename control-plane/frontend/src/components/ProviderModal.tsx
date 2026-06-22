@@ -14,6 +14,8 @@ import { successToast, errorToast } from "@/utils/toast";
 import toast from "react-hot-toast";
 import AppToast from "@/components/AppToast";
 import type { LLMProvider, ProviderModel } from "@/types/instance";
+import { buildClaudeAuthorizeURL } from "@/utils/claudeOAuth";
+import { linkClaudeSubscription } from "@/api/llm";
 
 const CUSTOM_PROVIDER = "__custom__";
 const CODEX_API_TYPE = "openai-codex-responses";
@@ -951,11 +953,10 @@ function CodexOAuthPanel({ provider, onChanged }: { provider: LLMProvider; onCha
 }
 
 // ClaudeSubscriptionPanel shows the link status of the shared Claude
-// subscription (Claude Code OAuth) that lives on the orchestrator. Unlike the
-// ChatGPT flow, login is performed once on the control plane via `claude login`
-// (the credential is host-level, not per-provider), so this panel only reports
-// status and offers Refresh / Disconnect. Every anthropic-oauth provider rides
-// on this single subscription.
+// subscription (Claude Code OAuth) that lives on the orchestrator. It provides
+// a browser-based PKCE login flow (open claude.ai → paste redirect URL) so the
+// user never has to touch a terminal. Every anthropic-oauth provider rides on
+// this single subscription.
 function ClaudeSubscriptionPanel() {
   const queryClient = useQueryClient();
   const { data: status, isLoading } = useQuery({
@@ -964,6 +965,68 @@ function ClaudeSubscriptionPanel() {
     staleTime: 10_000,
   });
   const [busy, setBusy] = useState(false);
+  const [verifier, setVerifier] = useState<string | null>(null);
+  const [stateValue, setStateValue] = useState<string | null>(null);
+  const [redirectInput, setRedirectInput] = useState("");
+
+  const handleConnect = async () => {
+    setBusy(true);
+    try {
+      const v = randomBase64Url(32);
+      const s = randomBase64Url(24);
+      const challenge = await pkceChallenge(v);
+      window.open(buildClaudeAuthorizeURL(s, challenge), "_blank", "noopener,noreferrer");
+      setVerifier(v);
+      setStateValue(s);
+    } catch (err) {
+      errorToast("Failed to start Claude login", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleComplete = async () => {
+    if (!verifier || !redirectInput.trim()) return;
+    setBusy(true);
+    try {
+      // Basic state check — extract ?state= from the pasted URL and compare.
+      if (stateValue) {
+        const pastedURL = redirectInput.trim();
+        let pastedState: string | null = null;
+        try {
+          const u = pastedURL.includes("://") ? new URL(pastedURL) : new URL("https://x?" + pastedURL.replace(/^\?/, ""));
+          pastedState = u.searchParams.get("state");
+        } catch { /* ignore malformed URLs — backend will catch code extraction */ }
+        if (pastedState !== null && pastedState !== stateValue) {
+          errorToast("Claude login failed", "state mismatch — start the login flow again");
+          setBusy(false);
+          return;
+        }
+      }
+      const updated = await linkClaudeSubscription({
+        code_verifier: verifier,
+        redirect_url: redirectInput.trim(),
+      });
+      successToast(
+        "Claude subscription linked",
+        updated.subscription_type ? `Plan: ${updated.subscription_type}` : undefined,
+      );
+      setVerifier(null);
+      setStateValue(null);
+      setRedirectInput("");
+      await queryClient.invalidateQueries({ queryKey: ["claude-subscription"] });
+    } catch (err) {
+      errorToast("Claude login failed", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setVerifier(null);
+    setStateValue(null);
+    setRedirectInput("");
+  };
 
   const refresh = async () => {
     setBusy(true);
@@ -982,6 +1045,9 @@ function ClaudeSubscriptionPanel() {
     setBusy(true);
     try {
       await disconnectClaudeSubscription();
+      setVerifier(null);
+      setStateValue(null);
+      setRedirectInput("");
       await queryClient.invalidateQueries({ queryKey: ["claude-subscription"] });
       successToast("Subscription disconnected");
     } catch (err) {
@@ -1044,29 +1110,64 @@ function ClaudeSubscriptionPanel() {
     );
   }
 
+  // Awaiting paste — user clicked Connect and the auth tab is open.
+  if (verifier) {
+    return (
+      <div className="border border-blue-200 bg-blue-50 rounded-md p-3 space-y-2">
+        <div className="text-xs text-gray-700">
+          <div className="font-medium text-gray-800">Paste the redirect URL</div>
+          <p className="mt-1 text-gray-600">
+            After signing in, Claude.ai redirects you to{" "}
+            <span className="font-mono">platform.claude.com/oauth/code/callback?code=…</span>.
+            Copy the full URL from the address bar and paste it below.
+          </p>
+        </div>
+        <textarea
+          value={redirectInput}
+          onChange={(e) => setRedirectInput(e.target.value)}
+          placeholder="https://platform.claude.com/oauth/code/callback?code=...&state=..."
+          rows={3}
+          className="w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleComplete}
+            disabled={busy || !redirectInput.trim()}
+            className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            {busy ? "Linking…" : "Complete Login"}
+          </button>
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={busy}
+            className="px-3 py-1 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="border border-amber-200 bg-amber-50 rounded-md p-3 space-y-2">
+    <div className="border border-gray-200 bg-gray-50 rounded-md p-3 space-y-2">
       <div className="text-xs text-gray-700">
-        <div className="font-medium text-gray-800">Link the orchestrator's Claude subscription</div>
-        <p className="mt-1 text-gray-600">
-          No subscription is linked yet. On the control plane host, run a one-time login:
-        </p>
-        <pre className="mt-1 px-2 py-1 bg-white border border-gray-200 rounded font-mono text-[11px] text-gray-700 overflow-x-auto">
-          claude login
-        </pre>
+        <div className="font-medium text-gray-800">Connect your Claude account</div>
         <p className="mt-1 text-gray-500">
-          Credentials are read from{" "}
-          <span className="font-mono">{status?.credentials_path || "~/.claude/.credentials.json"}</span>.
-          You can still save this provider now and link the subscription afterwards.
+          Opens claude.ai in a new tab. After signing in you'll be redirected to
+          platform.claude.com — copy the URL and paste it back here.
+          All instances using this provider will share your subscription.
         </p>
       </div>
       <button
         type="button"
-        onClick={refresh}
+        onClick={handleConnect}
         disabled={busy}
-        className="px-3 py-1 text-xs font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+        className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
       >
-        {busy ? "Checking…" : "Re-check status"}
+        {busy ? "Starting…" : "Connect with Claude.ai"}
       </button>
     </div>
   );

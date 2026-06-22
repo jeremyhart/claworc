@@ -127,6 +127,14 @@ export async function fetchClaudeSubscription(): Promise<ClaudeSubscriptionStatu
   return data;
 }
 
+export async function linkClaudeSubscription(payload: {
+  code_verifier: string;
+  redirect_url: string;
+}): Promise<ClaudeSubscriptionStatus> {
+  const { data } = await client.post<ClaudeSubscriptionStatus>("/llm/claude-subscription/link", payload);
+  return data;
+}
+
 export async function refreshClaudeSubscription(): Promise<ClaudeSubscriptionStatus> {
   const { data } = await client.post<ClaudeSubscriptionStatus>("/llm/claude-subscription/refresh");
   return data;

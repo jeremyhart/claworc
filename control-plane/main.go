@@ -456,6 +456,7 @@ func main() {
 
 				// Shared Claude subscription (Claude Code OAuth) link status
 				r.Get("/llm/claude-subscription", handlers.GetClaudeSubscription)
+				r.Post("/llm/claude-subscription/link", handlers.LinkClaudeSubscription)
 				r.Post("/llm/claude-subscription/refresh", handlers.RefreshClaudeSubscription)
 				r.Delete("/llm/claude-subscription", handlers.DisconnectClaudeSubscription)
 

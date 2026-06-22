@@ -399,6 +399,29 @@ func RefreshClaudeSubscription(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, llmgateway.GetAnthropicSubscriptionStatus())
 }
 
+// LinkClaudeSubscription exchanges a browser PKCE authorization code for
+// tokens and writes them to the credentials file, linking the shared Claude
+// subscription without requiring a terminal login.
+func LinkClaudeSubscription(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		CodeVerifier string `json:"code_verifier"`
+		RedirectURL  string `json:"redirect_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if strings.TrimSpace(body.CodeVerifier) == "" || strings.TrimSpace(body.RedirectURL) == "" {
+		writeError(w, http.StatusBadRequest, "code_verifier and redirect_url are required")
+		return
+	}
+	if err := llmgateway.LinkAnthropicSubscription(r.Context(), body.CodeVerifier, body.RedirectURL); err != nil {
+		writeError(w, http.StatusBadGateway, "Claude login failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, llmgateway.GetAnthropicSubscriptionStatus())
+}
+
 // DisconnectClaudeSubscription removes the credentials file, unlinking the
 // shared subscription from all instances.
 func DisconnectClaudeSubscription(w http.ResponseWriter, r *http.Request) {

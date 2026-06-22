@@ -24,9 +24,12 @@
 package llmgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +39,32 @@ import (
 
 	"github.com/gluk-w/claworc/control-plane/internal/config"
 )
+
+const (
+	// ClaudeOAuthClientID is the public OAuth client id used by the Claude Code
+	// CLI. It is the only client id that claude.ai accepts for this flow.
+	ClaudeOAuthClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	// ClaudeOAuthRedirectURI is the registered redirect URI for the manual
+	// (paste-URL) login flow. Unlike the Codex localhost URI, this one resolves
+	// to a real page — the user copies the full URL from the address bar after
+	// being redirected there.
+	ClaudeOAuthRedirectURI  = "https://platform.claude.com/oauth/code/callback"
+	ClaudeOAuthAuthorizeURL = "https://claude.ai/oauth/authorize"
+	ClaudeOAuthTokenURL     = "https://platform.claude.com/v1/oauth/token"
+	ClaudeOAuthRolesURL     = "https://api.anthropic.com/api/oauth/claude_cli/roles"
+	ClaudeOAuthScope        = "user:inference user:profile org:create_api_key user:sessions:claude_code user:mcp_servers user:file_upload"
+)
+
+// anthropicHTTPClient is used for token exchange and roles lookups.
+var anthropicHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+type claudeTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	Scope        string `json:"scope"`
+	TokenType    string `json:"token_type"`
+}
 
 // AnthropicOAuthBetaHeader is the anthropic-beta value required to authenticate
 // /v1/messages with a Claude subscription OAuth bearer token instead of an
@@ -199,4 +228,140 @@ func DisconnectAnthropicSubscription() error {
 		return fmt.Errorf("remove credentials: %w", err)
 	}
 	return nil
+}
+
+// exchangeAnthropicAuthCode exchanges an OAuth authorization code for tokens
+// using the Claude Code PKCE flow. Called by LinkAnthropicSubscription.
+func exchangeAnthropicAuthCode(ctx context.Context, code, codeVerifier string) (*claudeTokenResponse, error) {
+	payload, _ := json.Marshal(map[string]string{
+		"grant_type":    "authorization_code",
+		"client_id":     ClaudeOAuthClientID,
+		"code":          code,
+		"code_verifier": codeVerifier,
+		"redirect_uri":  ClaudeOAuthRedirectURI,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ClaudeOAuthTokenURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := anthropicHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("token endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		snippet := string(body)
+		if len(snippet) > 300 {
+			snippet = snippet[:300]
+		}
+		return nil, fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, snippet)
+	}
+	var out claudeTokenResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("decode token response: %w", err)
+	}
+	if out.AccessToken == "" {
+		return nil, fmt.Errorf("token endpoint returned empty access_token")
+	}
+	return &out, nil
+}
+
+// fetchAnthropicSubscriptionType calls the Claude CLI roles endpoint to
+// retrieve the user's subscription plan name (e.g. "max", "pro"). Returns ""
+// on any error — the subscription will still work; only the display label is missing.
+func fetchAnthropicSubscriptionType(ctx context.Context, accessToken string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ClaudeOAuthRolesURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("anthropic-beta", AnthropicOAuthBetaHeader)
+
+	resp, err := anthropicHTTPClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var result struct {
+		SubscriptionType string `json:"subscription_type"`
+		Plan             string `json:"plan"`
+		Role             string `json:"role"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return ""
+	}
+	if result.SubscriptionType != "" {
+		return result.SubscriptionType
+	}
+	if result.Plan != "" {
+		return result.Plan
+	}
+	return result.Role
+}
+
+// writeClaudeCredentials atomically writes the credentials file that the
+// gateway and the `claude` CLI both read from.
+func writeClaudeCredentials(creds claudeAiOauthCreds) error {
+	path := claudeCredentialsPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create credentials dir: %w", err)
+	}
+	file := claudeCredentialsFile{ClaudeAiOauth: creds}
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal credentials: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("write credentials: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("install credentials: %w", err)
+	}
+	return nil
+}
+
+// LinkAnthropicSubscription exchanges an OAuth authorization code (obtained
+// via the browser PKCE flow) for tokens and writes them to the credentials
+// file, linking the shared Claude subscription without requiring a terminal.
+func LinkAnthropicSubscription(ctx context.Context, codeVerifier, redirectURL string) error {
+	anthropicOAuthMu.Lock()
+	defer anthropicOAuthMu.Unlock()
+
+	code, _, err := ExtractCodeAndState(redirectURL)
+	if err != nil {
+		return err
+	}
+	if code == "" {
+		return fmt.Errorf("redirect URL does not contain an auth code")
+	}
+
+	tok, err := exchangeAnthropicAuthCode(ctx, code, codeVerifier)
+	if err != nil {
+		return err
+	}
+
+	scopes := strings.Fields(tok.Scope)
+	if len(scopes) == 0 {
+		scopes = strings.Fields(ClaudeOAuthScope)
+	}
+
+	subType := fetchAnthropicSubscriptionType(ctx, tok.AccessToken)
+
+	creds := claudeAiOauthCreds{
+		AccessToken:      tok.AccessToken,
+		RefreshToken:     tok.RefreshToken,
+		ExpiresAt:        time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second).UnixMilli(),
+		Scopes:           scopes,
+		SubscriptionType: subType,
+	}
+	return writeClaudeCredentials(creds)
 }
