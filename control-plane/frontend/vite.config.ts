@@ -79,12 +79,18 @@ export default defineConfig({
     }),
   ],
   build: {
-    target: "esnext",
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      target: "esnext",
-    },
+    // Down-level the production bundle to a fixed browser baseline rather than
+    // "esnext". "esnext" tells esbuild to emit the very newest syntax with
+    // minimal transpilation; an up-to-date desktop Chrome copes, but an older
+    // mobile Safari / Android WebView can fail to *parse* a bleeding-edge token
+    // a dependency happens to ship, and a parse failure means React never
+    // mounts — a blank white screen with no error.
+    //
+    // The floor is set by a dependency that uses top-level await (a WebCodecs
+    // feature probe), which is why this can't go below Safari 15 / Chrome 89.
+    // Pinning here down-levels everything newer than that baseline so phones on
+    // Safari 15/16 are guaranteed a bundle their engine can parse.
+    target: ["es2022", "chrome89", "edge89", "firefox89", "safari15"],
   },
   resolve: {
     alias: {

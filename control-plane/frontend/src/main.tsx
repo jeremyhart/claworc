@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
 import { AuthProvider } from "./contexts/AuthContext";
 import { TeamProvider } from "./contexts/TeamContext";
+import ErrorBoundary from "./components/ErrorBoundary";
 import App from "./App";
 import "./index.css";
 
@@ -19,22 +20,24 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AuthProvider>
-          <TeamProvider>
-            <App />
-          </TeamProvider>
-          <Toaster
-            position="bottom-right"
-            toastOptions={{
-              custom: {
-                style: { padding: 0, background: "transparent", boxShadow: "none" },
-              },
-            }}
-          />
-        </AuthProvider>
-      </BrowserRouter>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <AuthProvider>
+            <TeamProvider>
+              <App />
+            </TeamProvider>
+            <Toaster
+              position="bottom-right"
+              toastOptions={{
+                custom: {
+                  style: { padding: 0, background: "transparent", boxShadow: "none" },
+                },
+              }}
+            />
+          </AuthProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );
