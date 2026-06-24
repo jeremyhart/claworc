@@ -11,6 +11,100 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Boot watchdog. This is a deliberately plain (non-module) script so it runs
+      even when the main module bundle fails to load, parse, or execute — the
+      exact situations that otherwise leave the user staring at a blank white
+      page with no information (common on mobile, where no dev console is at
+      hand). It records early errors and, if React has not mounted shortly after
+      load, shows them on screen along with a "Clear cache & reload" button that
+      unregisters any service worker and clears caches — the usual cure for a
+      stale/broken PWA cache on Chrome for Android.
+    -->
+    <script>
+      (function () {
+        var errors = [];
+        function record(msg) {
+          if (msg && errors.indexOf(msg) === -1) errors.push(msg);
+        }
+        window.addEventListener(
+          "error",
+          function (e) {
+            if (e && e.message) {
+              record(
+                e.message +
+                  (e.filename ? " (" + e.filename + ":" + e.lineno + ")" : ""),
+              );
+            } else if (e && e.target && (e.target.src || e.target.href)) {
+              record("Failed to load resource: " + (e.target.src || e.target.href));
+            }
+          },
+          true,
+        );
+        window.addEventListener("unhandledrejection", function (e) {
+          var r = e && e.reason;
+          record("Unhandled rejection: " + (r && r.message ? r.message : String(r)));
+        });
+        function recover() {
+          var done = function () {
+            window.location.reload();
+          };
+          try {
+            var jobs = [];
+            if (window.caches && caches.keys) {
+              jobs.push(
+                caches.keys().then(function (keys) {
+                  return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                }),
+              );
+            }
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              jobs.push(
+                navigator.serviceWorker.getRegistrations().then(function (regs) {
+                  return Promise.all(regs.map(function (r) { return r.unregister(); }));
+                }),
+              );
+            }
+            Promise.all(jobs).then(done, done);
+          } catch (_) {
+            done();
+          }
+        }
+        function showFallback() {
+          var root = document.getElementById("root");
+          if (!root || root.childElementCount > 0) return; // app mounted — nothing to do
+          var detail = errors.length
+            ? errors.join("\n")
+            : "The app did not finish loading. This is often a cached or " +
+              "incomplete download.";
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;' +
+            'justify-content:center;padding:16px;font-family:system-ui,-apple-system,' +
+            'Segoe UI,Roboto,sans-serif;background:#f9fafb;color:#111827;">' +
+            '<div style="max-width:420px;width:100%;background:#fff;border:1px solid ' +
+            '#e5e7eb;border-radius:8px;padding:24px;text-align:center;">' +
+            '<h1 style="font-size:18px;font-weight:600;margin:0 0 8px;">Could not load the app</h1>' +
+            '<p style="font-size:14px;color:#4b5563;margin:0 0 16px;">Clearing the ' +
+            "cache and reloading usually fixes this.</p>" +
+            '<pre style="text-align:left;font-size:12px;color:#b91c1c;background:#fef2f2;' +
+            "border:1px solid #fee2e2;border-radius:6px;padding:12px;overflow:auto;" +
+            'max-height:160px;white-space:pre-wrap;word-break:break-word;margin:0 0 16px;">' +
+            detail.replace(/[&<>]/g, function (c) {
+              return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c];
+            }) +
+            "</pre>" +
+            '<button id="claworc-recover-btn" style="appearance:none;border:0;' +
+            "background:#111827;color:#fff;font-size:14px;font-weight:500;padding:" +
+            '10px 16px;border-radius:6px;cursor:pointer;">Clear cache &amp; reload</button>' +
+            "</div></div>";
+          var btn = document.getElementById("claworc-recover-btn");
+          if (btn) btn.addEventListener("click", recover);
+        }
+        window.addEventListener("load", function () {
+          setTimeout(showFallback, 5000);
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
