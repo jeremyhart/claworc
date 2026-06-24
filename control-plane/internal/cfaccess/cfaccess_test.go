@@ -185,6 +185,42 @@ func TestVerify_MissingEmail(t *testing.T) {
 	}
 }
 
+func TestVerify_ServiceTokenCommonNameFallback(t *testing.T) {
+	key := newKey(t)
+	srv := newJWKSServer(t, map[string]*rsa.PublicKey{"kid-1": &key.PublicKey})
+	v := NewVerifier(srv.URL, testAUD, testIssuer)
+
+	// Service tokens carry no email claim; identity comes from common_name.
+	c := validClaims()
+	delete(c, "email")
+	c["common_name"] = "ED9146487CE195B1FF28EA67E5C37042.access"
+
+	identity, err := v.Verify(context.Background(), signToken(t, key, "kid-1", c))
+	if err != nil {
+		t.Fatalf("Verify: unexpected error: %v", err)
+	}
+	if identity != "ed9146487ce195b1ff28ea67e5c37042.access" {
+		t.Fatalf("identity = %q, want normalized common_name", identity)
+	}
+}
+
+func TestVerify_EmailPreferredOverCommonName(t *testing.T) {
+	key := newKey(t)
+	srv := newJWKSServer(t, map[string]*rsa.PublicKey{"kid-1": &key.PublicKey})
+	v := NewVerifier(srv.URL, testAUD, testIssuer)
+
+	c := validClaims()
+	c["common_name"] = "token.access"
+
+	identity, err := v.Verify(context.Background(), signToken(t, key, "kid-1", c))
+	if err != nil {
+		t.Fatalf("Verify: unexpected error: %v", err)
+	}
+	if identity != "user@example.com" {
+		t.Fatalf("identity = %q, want email to take precedence", identity)
+	}
+}
+
 func TestVerify_UnknownKidRefetchesOnce(t *testing.T) {
 	key := newKey(t)
 	srv := newJWKSServer(t, map[string]*rsa.PublicKey{"kid-1": &key.PublicKey})

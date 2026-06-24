@@ -65,9 +65,11 @@ func NewVerifier(certsURL, aud, issuer string) *Verifier {
 }
 
 // Verify validates the given Cf-Access-Jwt-Assertion token and returns the
-// normalized (lowercased, trimmed) email from the verified `email` claim. It
-// returns an error if the signature, audience, issuer, expiry, or email claim
-// fails validation.
+// normalized (lowercased, trimmed) identity from the verified claims. It uses
+// the `email` claim when present and falls back to `common_name` otherwise —
+// Cloudflare Access service tokens carry no email, only a common name (e.g.
+// "<token-id>.access"). It returns an error if the signature, audience,
+// issuer, or expiry fails validation, or if neither identity claim is present.
 func (v *Verifier) Verify(ctx context.Context, token string) (string, error) {
 	if token == "" {
 		return "", errors.New("empty token")
@@ -97,12 +99,18 @@ func (v *Verifier) Verify(ctx context.Context, token string) (string, error) {
 		return "", err
 	}
 
-	email, _ := claims["email"].(string)
-	email = strings.ToLower(strings.TrimSpace(email))
-	if email == "" {
-		return "", errors.New("token missing email claim")
+	// Prefer the email claim; fall back to common_name for service tokens,
+	// which authenticate without a user email.
+	identity, _ := claims["email"].(string)
+	identity = strings.ToLower(strings.TrimSpace(identity))
+	if identity == "" {
+		identity, _ = claims["common_name"].(string)
+		identity = strings.ToLower(strings.TrimSpace(identity))
 	}
-	return email, nil
+	if identity == "" {
+		return "", errors.New("token missing email and common_name claims")
+	}
+	return identity, nil
 }
 
 // keyForKID returns the RSA public key for the given kid, fetching/refreshing
