@@ -114,7 +114,7 @@ Sessions are stored in memory — restarting the Claworc process logs all users 
 
 If you front Claworc with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/), Cloudflare can authenticate users at the edge and Claworc will trust that identity instead of showing its own login.
 
-When enabled, Cloudflare adds a signed token to every request. Claworc verifies that token against your Cloudflare team's public keys and reads the user's email from it. The email is matched to an existing Claworc user. There is **no automatic account creation** — an email with no matching user is denied access.
+When enabled, Cloudflare adds a signed token to every request. Claworc verifies that token against your Cloudflare team's public keys and reads the identity from it — the user's email, or the **common name** when the request comes from a [service token](#service-tokens). The identity is matched to an existing Claworc user. There is **no automatic account creation** — an identity with no matching user is denied access.
 
 <Info>
 While Cloudflare Access is enabled, the built-in username/password and passkey login are turned off. The dashboard shows a **Sign in via Cloudflare Access** notice, and **Log out** ends your Cloudflare Access session.
@@ -152,6 +152,37 @@ While Cloudflare Access is enabled, the built-in username/password and passkey l
 <Warning>
   Make sure Claworc is only reachable through Cloudflare. Cloudflare Access protects the edge, not the origin — if the origin is also directly reachable, requests can bypass authentication.
 </Warning>
+
+### Service tokens
+
+Use a [Cloudflare service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/) to let automated clients (CI jobs, scripts, other services) reach Claworc without an interactive login. A service token authenticates with a client ID and secret instead of a person's email, so Claworc matches it by **common name** rather than email.
+
+<Steps>
+  <Step title="Create the service token">
+    In the Cloudflare Zero Trust dashboard, go to **Access** → **Service Auth** → **Service Tokens** and create a token. Note its **Client ID**, **Client Secret**, and **Common Name** (for example `a1b2c3d4e5f6...access`).
+  </Step>
+  <Step title="Allow the token on the application">
+    Add a policy to the Claworc Access application with the action **Service Auth** that includes this service token. The policy must be on the same application whose AUD tag is in `CLAWORC_CF_ACCESS_AUD`, so the issued token carries the matching audience.
+  </Step>
+  <Step title="Create a matching Claworc user">
+    In **Settings** → **Users**, create a user whose **Email** field is set to the service token's **Common Name** exactly (the `...access` value, not the Client ID). Give it whatever role and instances the automated client needs. As with any Cloudflare Access identity, the account must already exist — there is no automatic creation.
+  </Step>
+  <Step title="Send the token headers">
+    Have the client send the service token on every request:
+
+    ```bash
+    curl https://claworc.example.com/api/v1/instances \
+      -H "CF-Access-Client-Id: <client-id>" \
+      -H "CF-Access-Client-Secret: <client-secret>"
+    ```
+
+    Cloudflare validates the headers at the edge and injects the signed token that Claworc verifies.
+  </Step>
+</Steps>
+
+<Note>
+  The matching value is the **Common Name**, not the Client ID — they look similar, but the common name ends in `.access`.
+</Note>
 
 ---
 
