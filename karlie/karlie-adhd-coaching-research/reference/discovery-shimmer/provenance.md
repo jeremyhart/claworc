@@ -1,3 +1,7 @@
+> ⚠️ **SUPERSEDED — DISCOVERY MATERIAL (unvalidated).** Harvested from a single commercial blog (Shimmer) at the discovery stage. It has been **superseded by the validated doctrine** in the parent `reference/` folder (`01`–`07`, `bibliography.md`, `fact-checks.md`) and `SKILL.md`. Use it only as a *menu of ideas, vocabulary, and leads* — never cite it as fact, and never repeat its statistics without checking `fact-checks.md`. Its real value now: the technique menu (for ideas) and the **safety-gap catalogue** in `coverage-and-safety.md` §3 (as a model of how *not* to handle depression).
+
+---
+
 # Provenance & Caveats
 
 - **Source:** the Shimmer ADHD blog (shimmer.care/blog) - a commercial ADHD-coaching company. Content-marketing, not a peer-reviewed or clinical source.
