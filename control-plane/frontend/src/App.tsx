@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import Layout from "./components/Layout";
+import FullPageSpinner from "./components/FullPageSpinner";
 import DashboardPage from "./pages/DashboardPage";
 import CreateInstancePage from "./pages/CreateInstancePage";
 import InstanceDetailPage from "./pages/InstanceDetailPage";
@@ -33,7 +34,7 @@ function useSetupRequired() {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading, isBackendUnavailable } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <FullPageSpinner />;
   if (isBackendUnavailable) return <BackendUnavailablePage />;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
@@ -41,7 +42,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { isAdmin, isLoading, isBackendUnavailable } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <FullPageSpinner />;
   if (isBackendUnavailable) return <BackendUnavailablePage />;
   if (!isAdmin) return <Navigate to="/" replace />;
   return <>{children}</>;
@@ -50,7 +51,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 function LoginRoute() {
   const { user, isBackendUnavailable, isLoading, cfAccessEnabled, cfConfigLoading } =
     useAuth();
-  if (isLoading || cfConfigLoading) return null;
+  if (isLoading || cfConfigLoading) return <FullPageSpinner />;
   if (isBackendUnavailable) return <BackendUnavailablePage />;
   if (cfAccessEnabled) {
     // Cloudflare Access establishes identity; a signed-in user shouldn't see a
@@ -63,7 +64,7 @@ function LoginRoute() {
 
 function InstanceCreatorRoute({ children }: { children: React.ReactNode }) {
   const { canCreateInstances, isLoading, isBackendUnavailable } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <FullPageSpinner />;
   if (isBackendUnavailable) return <BackendUnavailablePage />;
   if (!canCreateInstances) return <Navigate to="/" replace />;
   return <>{children}</>;
@@ -72,7 +73,7 @@ function InstanceCreatorRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   const { data: setupRequired, isLoading: setupLoading } = useSetupRequired();
 
-  if (setupLoading) return null;
+  if (setupLoading) return <FullPageSpinner />;
 
   if (setupRequired) {
     return (

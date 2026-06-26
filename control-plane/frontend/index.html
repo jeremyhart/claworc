@@ -73,10 +73,20 @@
         function showFallback() {
           var root = document.getElementById("root");
           if (!root || root.childElementCount > 0) return; // app mounted — nothing to do
+          var booted = !!window.__CLAWORC_BOOTED__;
           var detail = errors.length
             ? errors.join("\n")
-            : "The app did not finish loading. This is often a cached or " +
-              "incomplete download.";
+            : booted
+              ? "The app loaded but is waiting on a server response that " +
+                "never arrived. Check your network/VPN and try again."
+              : "The app code never ran — likely a cached or incomplete " +
+                "download, or the page couldn't be reached.";
+          detail +=
+            "\n\n[" +
+            (booted ? "bundle executed" : "bundle did NOT execute") +
+            "; online=" +
+            (navigator.onLine ? "yes" : "no") +
+            "]";
           root.innerHTML =
             '<div style="min-height:100vh;display:flex;align-items:center;' +
             'justify-content:center;padding:16px;font-family:system-ui,-apple-system,' +

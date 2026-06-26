@@ -9,6 +9,12 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import App from "./App";
 import "./index.css";
 
+// Signal to the boot watchdog in index.html that the module bundle loaded and
+// executed. If the watchdog still has to show its fallback, this flag tells us
+// whether the failure was before JS ran (bundle/parse/network) or after (the
+// app mounted but rendered nothing, e.g. a hung request).
+(window as unknown as { __CLAWORC_BOOTED__?: boolean }).__CLAWORC_BOOTED__ = true;
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

@@ -35,13 +35,17 @@ export interface HealthResponse {
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
-  const { data } = await axios.get<HealthResponse>("/health");
+  const { data } = await axios.get<HealthResponse>("/health", {
+    timeout: 20000,
+  });
   return data;
 }
 
 export async function reinitializeOrchestrator(): Promise<OrchestratorStatus> {
   const { data } = await axios.post<OrchestratorStatus>(
     "/api/v1/orchestrator/reinitialize",
+    undefined,
+    { timeout: 20000 },
   );
   return data;
 }
